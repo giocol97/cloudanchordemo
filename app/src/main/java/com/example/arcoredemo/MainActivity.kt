@@ -46,6 +46,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import android.widget.*
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.Volley
 import com.example.arcoredemo.common.*
 import com.google.ar.core.*
 import java.nio.BufferUnderflowException
@@ -74,6 +78,9 @@ private const val LIDAR_CHARACTERISTIC_DRAWABLE=7
 private const val ANGLE_OFFSET=180
 
 //cloud anchor test constants
+
+private const val TEST_SERVER_IP="wecars.it/test.php"
+
 private const val CLOUD_ANCHOR_ID="ua-52947778a92664715ecb5a67664744d2" //casa padova
 //private const val CLOUD_ANCHOR_ID="ua-aed91188d6f3e7c22c864dad47165c88" //klaxon ufficio
 //private const val CLOUD_ANCHOR_ID="ua-7221a0cec8445e204021537e076033d3" //klaxon magazzino NO
@@ -223,10 +230,13 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
 
     var saveCounter=0
 
-    private lateinit var cloudAnchor:Anchor
-
-
-
+    //private lateinit var cloudAnchor:Anchor
+    private var serverResponse="Empty"
+    private var anchorMessage="NONE"
+    private var anchorsResolveStatus = mutableListOf<String>()
+    private var cloudAnchorsIds = mutableListOf<String>()
+    private var cloudAnchors = mutableListOf<Anchor>()
+    private var cloudAnchorsResolved = mutableListOf<Boolean>()
 
     // Camera device state callback.
     private val cameraDeviceCallback: CameraDevice.StateCallback =
@@ -482,8 +492,15 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
 
         val buttonResolveCloudAnchor : Button = findViewById(R.id.buttonResolveCloud)
         buttonResolveCloudAnchor.setOnClickListener{
-            resolveCloudAnchor=true
+            getCloudAnchorIds()
+            //resolveCloudAnchor=true
         }
+        try{
+           getServerStatus()
+        }catch(e:Exception){
+            Log.d("ASD","ASD ${e.message}")
+        }
+
 
     }
 
@@ -840,12 +857,11 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
             runOnUiThread {
                 statusTextView.text = ("Poses received: "
                         + myPointCloud.counter
-                        +"\nConnection status: "
-                        + if(connectionStatus) {"Connected"} else {"Not Connected"}
-                        +"\nCurrent speed: "
-                        + currentSpeed
-                        +"\nCurrent direction: "
-                        + currentDirection
+                        +"\nServer status: "
+                        + serverResponse
+                        +"\nCloud Anchors Status: "
+                        + anchorMessage
+
                         )
                         /*+ "\n\nMode: "
                         + (if (arMode) "AR" else "non-AR")
@@ -1083,34 +1099,47 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
         }
 
         if(establishCloudAnchor && anchors.size>0 && myPointCloud.counter>=1000){
-            if(::cloudAnchor.isInitialized){
+            if(cloudAnchors.size>0){
                 if(myPointCloud.counter.mod(10)==0){//to avoid too many messages only output every 10 frames
-                    Log.d("ASD","Establish CloudAnchorState: ${cloudAnchor.cloudAnchorState}")
-                    if(cloudAnchor.cloudAnchorState==Anchor.CloudAnchorState.SUCCESS){//cloud anchor established successfully
-                        Log.d("ASD","Cloud Anchor Id: ${cloudAnchor.cloudAnchorId}")
+                    //Log.d("ASD","Establish CloudAnchorState: ${cloudAnchor.cloudAnchorState}")
+                    updateAnchorMessage()
+                    if(getAnchorMessage(cloudAnchors.last().cloudAnchorState)=="SUCCESS"){//cloud anchor established successfully
+                        //Log.d("ASD","Cloud Anchor Id: ${cloudAnchor.cloudAnchorId}")
+                        cloudAnchorsResolved[cloudAnchorsResolved.size-1]=true
                         if(establishCloudAnchor){
-                            saveCloudAnchorId(cloudAnchor.cloudAnchorId)
+                            //saveCloudAnchorId(cloudAnchor.cloudAnchorId)
                             establishCloudAnchor=false
+                        }
+                    }
+
+                }
+            }else{
+                cloudAnchors.add(sharedSession.hostCloudAnchor(anchors[0].anchor))
+                cloudAnchorsResolved.add(false)
+            }
+        }
+
+        if(resolveCloudAnchor && myPointCloud.counter>=1000){
+            if(cloudAnchors.size>0){//TODO resolve non compatibile con establish in stessa sessione
+                if(myPointCloud.counter.mod(10)==0) {//to avoid too many messages only output every 10 frames
+                    //Log.d("ASD","Resolve CloudAnchorState: ${cloudAnchor.cloudAnchorState}")
+                    updateAnchorMessage()
+                    for(i in cloudAnchorsResolved.indices){
+                        if(!cloudAnchorsResolved[i]){//if anchor was not yet resolved check status
+                            //if cloud anchor resolved successfully in last 10 frames create visual anchor and update list
+                            if(cloudAnchors[i].cloudAnchorState==Anchor.CloudAnchorState.SUCCESS){
+                                val objColor = floatArrayOf(255.0f, 10.0f, 10.0f, 255.0f)
+                                anchors.add(ColoredAnchor(cloudAnchors[i], objColor))
+                                cloudAnchorsResolved[i]=true
+                            }
                         }
                     }
                 }
             }else{
-                cloudAnchor=sharedSession.hostCloudAnchor(anchors[0].anchor)
-            }
-        }
-
-        if(resolveCloudAnchor && anchors.size>0 && myPointCloud.counter>=1000){
-            if(::cloudAnchor.isInitialized){
-                if(myPointCloud.counter.mod(10)==0) {//to avoid too many messages only output every 10 frames
-                    Log.d("ASD","Resolve CloudAnchorState: ${cloudAnchor.cloudAnchorState}")
+                cloudAnchorsIds.forEach{ id ->
+                    cloudAnchors.add(sharedSession.resolveCloudAnchor(id))
+                    cloudAnchorsResolved.add(false)
                 }
-
-                if(cloudAnchor.cloudAnchorState==Anchor.CloudAnchorState.SUCCESS){//cloud anchor resolved successfully
-                    val objColor = floatArrayOf(255.0f, 10.0f, 10.0f, 255.0f)
-                    anchors.add(ColoredAnchor(cloudAnchor, objColor))
-                }
-            }else{
-                cloudAnchor=sharedSession.resolveCloudAnchor(CLOUD_ANCHOR_ID)
             }
         }
 
@@ -1197,6 +1226,77 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
 
     }
 
+    fun getAnchorMessage(anchorState:Anchor.CloudAnchorState):String{
+        return when(anchorState){
+            Anchor.CloudAnchorState.SUCCESS -> "SUCCESS"
+            Anchor.CloudAnchorState.NONE -> "NONE"
+            Anchor.CloudAnchorState.TASK_IN_PROGRESS -> "TASK_IN_PROGRESS"
+            Anchor.CloudAnchorState.ERROR_INTERNAL -> "ERROR_INTERNAL"
+            Anchor.CloudAnchorState.ERROR_NOT_AUTHORIZED -> "ERROR_NOT_AUTHORIZED"
+            Anchor.CloudAnchorState.ERROR_SERVICE_UNAVAILABLE -> "ERROR_SERVICE_UNAVAILABLE"
+            Anchor.CloudAnchorState.ERROR_RESOURCE_EXHAUSTED -> "ERROR_RESOURCE_EXHAUSTED"
+            Anchor.CloudAnchorState.ERROR_HOSTING_DATASET_PROCESSING_FAILED -> "ERROR_HOSTING_DATASET_PROCESSING_FAILED"
+            Anchor.CloudAnchorState.ERROR_CLOUD_ID_NOT_FOUND -> "ERROR_CLOUD_ID_NOT_FOUND"
+            Anchor.CloudAnchorState.ERROR_RESOLVING_LOCALIZATION_NO_MATCH -> "ERROR_RESOLVING_LOCALIZATION_NO_MATCH"
+            Anchor.CloudAnchorState.ERROR_RESOLVING_SDK_VERSION_TOO_OLD -> "ERROR_RESOLVING_SDK_VERSION_TOO_OLD"
+            Anchor.CloudAnchorState.ERROR_RESOLVING_SDK_VERSION_TOO_NEW -> "ERROR_RESOLVING_SDK_VERSION_TOO_NEW"
+            Anchor.CloudAnchorState.ERROR_HOSTING_SERVICE_UNAVAILABLE -> "ERROR_HOSTING_SERVICE_UNAVAILABLE"
+        }
+    }
+
+    fun updateAnchorMessage(){
+        var count=0
+        for (el in cloudAnchorsResolved){
+            if(el){
+                count++
+            }
+        }
+        anchorMessage="Established $count / ${cloudAnchorsResolved.size} Anchors\n"
+
+        for(i in cloudAnchorsResolved.indices){
+            anchorMessage+="Anchor ${i+1}: "
+            anchorMessage+="${getAnchorMessage(cloudAnchors[i].cloudAnchorState)} \n"
+        }
+    }
+
+    fun getCloudAnchorIds(){
+        val queue = Volley.newRequestQueue(this)
+        val url = "https://$TEST_SERVER_IP?getanchorids=1"
+
+        // Request a string response from the provided URL.
+        val stringRequest = StringRequest(
+            Request.Method.GET, url,
+            { response ->
+                val ids=response.split("<br>")
+                ids.forEach{
+                    if(it!="" || it!=" "){
+                        cloudAnchorsIds.add(it)
+                    }
+                }
+                resolveCloudAnchor=true
+            },
+            { serverResponse = "Error retrieving IDs" })
+
+        // Add the request to the RequestQueue.
+        queue.add(stringRequest)
+    }
+
+    fun getServerStatus(){
+        // Instantiate the RequestQueue.
+        val queue = Volley.newRequestQueue(this)
+        val url = "https://$TEST_SERVER_IP?getstatus=1"
+
+// Request a string response from the provided URL.
+        val stringRequest = StringRequest(
+            Request.Method.GET, url,
+            { response ->
+                serverResponse = if(response=="ASD") "Available" else "Unavailable"
+            },
+            { serverResponse = "Error connecting to server" })
+
+// Add the request to the RequestQueue.
+        queue.add(stringRequest)
+    }
 
     fun saveToPLY(){
 
@@ -1270,6 +1370,9 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
         }finally{
             fileWriter.close()
         }
+
+
+
     }
 
 
