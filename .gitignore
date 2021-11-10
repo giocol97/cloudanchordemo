@@ -1,0 +1,12 @@
+utils/
+opencv/
+screenshots/
+app/build/
+
+.idea/
+
+*.hprof
+
+.gradle/
+
+local.properties

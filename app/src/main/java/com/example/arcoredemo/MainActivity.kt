@@ -1101,17 +1101,15 @@ class MainActivity() : AppCompatActivity(), GLSurfaceView.Renderer,
         if(establishCloudAnchor && anchors.size>0 && myPointCloud.counter>=1000){
             if(cloudAnchors.size>0){
                 if(myPointCloud.counter.mod(10)==0){//to avoid too many messages only output every 10 frames
-                    //Log.d("ASD","Establish CloudAnchorState: ${cloudAnchor.cloudAnchorState}")
                     updateAnchorMessage()
-                    if(getAnchorMessage(cloudAnchors.last().cloudAnchorState)=="SUCCESS"){//cloud anchor established successfully
-                        //Log.d("ASD","Cloud Anchor Id: ${cloudAnchor.cloudAnchorId}")
-                        cloudAnchorsResolved[cloudAnchorsResolved.size-1]=true
+                    if(cloudAnchors.first().cloudAnchorState==Anchor.CloudAnchorState.SUCCESS){//cloud anchor established successfully
+                        cloudAnchorsResolved[0]=true
+                        val objColor = floatArrayOf(255.0f, 10.0f, 10.0f, 255.0f)
+                        anchors.add(ColoredAnchor(cloudAnchors[0], objColor))
                         if(establishCloudAnchor){
-                            //saveCloudAnchorId(cloudAnchor.cloudAnchorId)
                             establishCloudAnchor=false
                         }
                     }
-
                 }
             }else{
                 cloudAnchors.add(sharedSession.hostCloudAnchor(anchors[0].anchor))
